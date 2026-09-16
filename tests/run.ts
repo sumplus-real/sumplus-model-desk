@@ -12,6 +12,9 @@ import { fileURLToPath } from "node:url";
 import { offerKey, snapshotIdOf, type Snapshot } from "../src/catalogue.js";
 import { costOf, savingOf, usd } from "../src/pricing.js";
 import { plan, resolve, MAX_TOKENS, type PlanResult } from "../src/plan.js";
+import { handleMcpPayload, listTools } from "../src/mcp.js";
+import { runPlanCall } from "../src/operations.js";
+import { TOOLS } from "../src/tools.js";
 
 // A reviewer runs these in an isolated environment. Any network call would be
 // red there and green here, which is the shape of a test that proves nothing,
@@ -257,7 +260,57 @@ try {
 }
 check("a fractional micro-dollar is refused, not rounded", refusedFraction);
 
-console.log("9. The snapshot is content addressed");
+console.log("9. JSON-RPC says the same thing as the REST route");
+const ctx = { snapshot, staleSeconds: 0, submitted: snapshot };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const rpc = (payload: unknown): any => handleMcpPayload(payload, ctx);
+
+const listed = rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+const listedNames = (listed.result.tools as { name: string }[]).map((t) => t.name);
+check("the tool list comes from the manifest", listedNames.join(",") === TOOLS.tools.map((t) => t.name).join(","), listedNames.join(", "));
+check("every listed tool carries a schema", (listed.result.tools as { inputSchema: { type: string } }[]).every((t) => t.inputSchema.type === "object"));
+const planSchema = (listed.result.tools as { name: string; inputSchema: { properties: Record<string, { type: string }>; required?: string[] } }[]).find((t) => t.name === "plan_call")?.inputSchema;
+check("the job's token counts are required", planSchema?.required?.includes("inputTokens") === true && planSchema?.required?.includes("outputTokens") === true, (planSchema?.required ?? []).join(", "));
+check("the preview switch is typed as a boolean", planSchema?.properties.includePreview?.type === "boolean");
+check("a list of lines is typed as an array", planSchema?.properties.requireLines?.type === "array");
+
+// The point of the layer: one implementation behind two doors.
+const args = { inputTokens: 100_000, outputTokens: 10_000, baselineModelId: "gpt-5.5", limit: 5 };
+const called = rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "plan_call", arguments: args } });
+const throughRpc = JSON.parse((called.result.content as { text: string }[])[0].text);
+const throughRest = runPlanCall(snapshot, 0, args).body;
+check("a call through JSON-RPC matches the REST answer byte for byte", JSON.stringify(throughRpc) === JSON.stringify(throughRest));
+check("a successful call is not marked as an error", called.result.isError === undefined);
+
+// A tool refusing is a result. Only a malformed request is a protocol error.
+const refused = rpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "plan_call", arguments: { inputTokens: -1, outputTokens: 5 } } });
+check("a refusing tool answers as a result, not a protocol error", refused.error === undefined && refused.result.isError === true);
+check("the refusal carries the reason", JSON.parse((refused.result.content as { text: string }[])[0].text).error === "invalid_token_counts");
+
+const noSuchTool = rpc({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "make_coffee" } });
+check("an unknown tool is a protocol error", noSuchTool.error?.code === -32602);
+check("and it names the tools that do exist", Array.isArray(noSuchTool.error?.data?.available));
+
+const noSuchMethod = rpc({ jsonrpc: "2.0", id: 5, method: "tools/rename" });
+check("an unknown method is method-not-found", noSuchMethod.error?.code === -32601);
+
+const wrongVersion = rpc({ jsonrpc: "1.0", id: 6, method: "tools/list" });
+check("a request that is not JSON-RPC 2.0 is refused", wrongVersion.error?.code === -32600);
+
+const init = rpc({ jsonrpc: "2.0", id: 7, method: "initialize", params: {} });
+check("initialize answers with tool capability", init.result.capabilities.tools !== undefined);
+
+check("a notification gets no reply", rpc({ jsonrpc: "2.0", method: "notifications/initialized" }) === null);
+
+const batch = rpc([
+  { jsonrpc: "2.0", id: 8, method: "ping" },
+  { jsonrpc: "2.0", id: 9, method: "tools/list" },
+]);
+check("a batch comes back as a batch", Array.isArray(batch) && batch.length === 2);
+
+check("the manifest and the RPC list cannot drift", listTools().length === TOOLS.tools.length);
+
+console.log("10. The snapshot is content addressed");
 check("the committed snapshot's id recomputes", snapshotIdOf(snapshot.offers) === snapshot.snapshotId);
 const tampered = snapshot.offers.map((o, i) => (i === 0 ? { ...o, inputPerMillionMicro: o.inputPerMillionMicro + 1 } : o));
 check("changing one price changes the id", snapshotIdOf(tampered) !== snapshot.snapshotId);

@@ -12,6 +12,21 @@ export const TOOLS = {
   authentication: "None. Every tool is public and read-only.",
   sideEffects:
     "None. No credentials are held, nothing is written, no upstream call is billed to the caller.",
+  transports: {
+    rest: "Each tool has its own path under /v1, listed with the tool below.",
+    jsonRpc: {
+      path: "POST /mcp",
+      protocol: "JSON-RPC 2.0",
+      methods: ["initialize", "tools/list", "tools/call", "ping"],
+      toolListSource:
+        "tools/list is generated from this document, so the two cannot describe different tools.",
+      dispatch:
+        "tools/call runs the same operation as the matching REST route, so both doors return the same answer.",
+      errors:
+        "A malformed request comes back as a JSON-RPC error object. A tool that refuses comes back as a result carrying isError with the refusal inside, because the request was well formed and the refusal is the answer.",
+      batching: "A batch of requests is answered with a batch. A notification is answered with nothing.",
+    },
+  },
   limits: {
     requestsPerMinutePerAddress: 60,
     maxRowsPerResponse: 50,

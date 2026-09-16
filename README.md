@@ -37,7 +37,30 @@ Every endpoint is read-only, needs no credentials, and costs the caller nothing.
 | `GET /v1/catalogue` | The catalogue being priced against |
 | `GET /v1/catalogue/diff` | What has moved since this build was submitted |
 | `GET /v1/tools.json` | Tool surface: inputs, outputs, errors, limits, side effects |
+| `POST /mcp` | The same five tools over JSON-RPC 2.0, for an agent runtime |
 | `GET /health` | Liveness, the commit this build was cut from, and cache observability |
+
+## Calling it as an agent runtime
+
+The same five tools answer over JSON-RPC 2.0 at `POST /mcp`:
+
+```bash
+curl -s https://sumplus-model-desk-production.up.railway.app/mcp \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+curl -s https://sumplus-model-desk-production.up.railway.app/mcp \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"plan_call","arguments":{"inputTokens":100000,"outputTokens":10000}}}'
+```
+
+`tools/list` is generated from the same `tools.json` served over HTTP, and `tools/call` runs the
+same operation as the matching REST route, so the two doors cannot answer differently. The tests
+assert that a call through JSON-RPC matches the REST answer byte for byte.
+
+A malformed request comes back as a JSON-RPC error object. A tool that refuses comes back as a
+result carrying `isError`, with the refusal inside it, because the request was well formed and the
+refusal is the answer.
 
 ## What a refusal looks like
 

@@ -3,8 +3,16 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureCatalogue, type Offer, type Snapshot } from "./catalogue.js";
-import { plan, resolve as resolveModel, validateTokens, MAX_ROWS, MAX_TOKENS } from "./plan.js";
-import { priceJob, costOf, money, usd } from "./pricing.js";
+import { MAX_TOKENS } from "./plan.js";
+import { usd } from "./pricing.js";
+import {
+  runCatalogue,
+  runCatalogueDiff,
+  runPlanCall,
+  runQuote,
+  runResolve,
+} from "./operations.js";
+import { handleMcpPayload, PARSE_ERROR_RESPONSE } from "./mcp.js";
 import { TOOLS } from "./tools.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -66,80 +74,6 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(raw);
 }
 
-function publicOffer(o: Offer) {
-  return {
-    modelId: o.modelId,
-    name: o.name,
-    line: o.line,
-    lineCode: o.lineCode,
-    ownedBy: o.ownedBy,
-    context: o.context,
-    maxOutput: o.maxOutput,
-    availability: o.availability,
-    inputPerMillion: usd(o.inputPerMillionMicro),
-    outputPerMillion: usd(o.outputPerMillionMicro),
-    cacheHitPerMillion: o.cacheHitPerMillionMicro === null ? null : usd(o.cacheHitPerMillionMicro),
-  };
-}
-
-/** What changed between the catalogue submitted with this build and today's. */
-function diffAgainstSubmitted(now: Snapshot) {
-  const key = (o: Offer) => `${o.modelId}::${o.line}`;
-  const before = new Map(SUBMITTED.offers.map((o) => [key(o), o]));
-  const after = new Map(now.offers.map((o) => [key(o), o]));
-
-  const added = [...after.keys()].filter((k) => !before.has(k));
-  const removed = [...before.keys()].filter((k) => !after.has(k));
-  const repriced: unknown[] = [];
-  const rewindowed: unknown[] = [];
-
-  for (const [k, a] of after) {
-    const b = before.get(k);
-    if (!b) continue;
-    if (
-      a.inputPerMillionMicro !== b.inputPerMillionMicro ||
-      a.outputPerMillionMicro !== b.outputPerMillionMicro
-    ) {
-      repriced.push({
-        offer: k,
-        inputPerMillion: { was: usd(b.inputPerMillionMicro), now: usd(a.inputPerMillionMicro) },
-        outputPerMillion: { was: usd(b.outputPerMillionMicro), now: usd(a.outputPerMillionMicro) },
-      });
-    }
-    if (a.context !== b.context || a.maxOutput !== b.maxOutput) {
-      rewindowed.push({
-        offer: k,
-        context: { was: b.context, now: a.context },
-        maxOutput: { was: b.maxOutput, now: a.maxOutput },
-      });
-    }
-  }
-
-  return {
-    submittedSnapshotId: SUBMITTED.snapshotId,
-    submittedPricedAt: SUBMITTED.pricedAt,
-    currentSnapshotId: now.snapshotId,
-    currentPricedAt: now.pricedAt,
-    identical: now.snapshotId === SUBMITTED.snapshotId,
-    counts: {
-      submitted: SUBMITTED.offers.length,
-      current: now.offers.length,
-      added: added.length,
-      removed: removed.length,
-      repriced: repriced.length,
-      rewindowed: rewindowed.length,
-    },
-    added,
-    removed,
-    repriced,
-    rewindowed,
-    // Said plainly, because the opposite claim would be false: two readings of
-    // one source agreeing proves the source moved, not that it is correct.
-    whatThisShows:
-      "The upstream catalogue is live and changes over time. It does not independently confirm that any price is correct.",
-  };
-}
-
 const INDEX = {
   service: "Sumplus Model Desk",
   what:
@@ -155,6 +89,7 @@ const INDEX = {
     "GET  /v1/resolve?modelId=gpt-5.5",
     "GET  /v1/catalogue",
     "GET  /v1/catalogue/diff",
+    "POST /mcp",
   ],
   sideEffects: "None. Every endpoint is read-only, needs no credentials, and costs the caller nothing.",
   scope:
@@ -240,105 +175,68 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   const snapshot = state.snapshot;
   const staleSeconds = state.staleSeconds ?? 0;
 
-  if (path === "/v1/plan_call" && req.method === "POST") {
-    let body: Record<string, unknown>;
+  async function body(): Promise<Record<string, unknown> | null> {
     try {
-      body = (await readJson(req)) as Record<string, unknown>;
+      return (await readJson(req)) as Record<string, unknown>;
     } catch (err) {
-      return send(res, 400, { error: "invalid_request", message: err instanceof Error ? err.message : "unreadable body" }, rateHeaders);
+      send(res, 400, {
+        error: "invalid_request",
+        message: err instanceof Error ? err.message : "unreadable body",
+      }, rateHeaders);
+      return null;
     }
-    const result = plan(snapshot, staleSeconds, body as never);
-    const status = "error" in result ? (result.error === "unknown_model" ? 404 : 422) : 200;
-    return send(res, status, result, rateHeaders);
+  }
+
+  if (path === "/v1/plan_call" && req.method === "POST") {
+    const args = await body();
+    if (!args) return;
+    const out = runPlanCall(snapshot, staleSeconds, args);
+    return send(res, out.status, out.body, rateHeaders);
   }
 
   if (path === "/v1/quote" && req.method === "POST") {
-    let body: Record<string, unknown>;
-    try {
-      body = (await readJson(req)) as Record<string, unknown>;
-    } catch (err) {
-      return send(res, 400, { error: "invalid_request", message: err instanceof Error ? err.message : "unreadable body" }, rateHeaders);
-    }
-    const inputTokens = body.inputTokens as number;
-    const outputTokens = body.outputTokens as number;
-    const invalid = validateTokens({ inputTokens, outputTokens });
-    if (invalid) return send(res, 422, invalid, rateHeaders);
-
-    const modelId = String(body.modelId ?? "");
-    const line = body.line === undefined ? null : String(body.line);
-    const candidates = snapshot.offers.filter(
-      (o) => o.modelId === modelId && (line === null || o.line === line),
-    );
-    if (candidates.length === 0) {
-      const known = resolveModel(snapshot, modelId);
-      return send(res, 404, "error" in known ? known : {
-        error: "unknown_model",
-        message: `The id ${modelId} is in this catalogue, but not on line ${line}.`,
-        requested: { modelId, line },
-        availableLines: (known as { offers: { line: string }[] }).offers.map((o) => o.line),
-      }, rateHeaders);
-    }
-
-    const cachedInputTokens = Number(body.cachedInputTokens ?? 0);
-    const quotes = candidates
-      .map((o) => {
-        const job = priceJob(o, inputTokens, outputTokens);
-        const cached =
-          cachedInputTokens > 0 && o.cacheHitPerMillionMicro !== null
-            ? money(costOf(cachedInputTokens, o.cacheHitPerMillionMicro))
-            : null;
-        return {
-          modelId: o.modelId,
-          line: o.line,
-          lineCode: o.lineCode,
-          inputCost: job.input,
-          outputCost: job.output,
-          cachedInputCost: cached,
-          totalCost: money(job.total.microUsd + (cached?.microUsd ?? 0)),
-          context: o.context,
-          maxOutput: o.maxOutput,
-          availability: o.availability,
-        };
-      })
-      .sort((a, b) => a.totalCost.microUsd - b.totalCost.microUsd);
-
-    return send(res, 200, {
-      modelId,
-      offerCount: quotes.length,
-      quotes,
-      snapshotId: snapshot.snapshotId,
-      pricedAt: snapshot.pricedAt,
-      staleSeconds,
-    }, rateHeaders);
+    const args = await body();
+    if (!args) return;
+    const out = runQuote(snapshot, staleSeconds, args);
+    return send(res, out.status, out.body, rateHeaders);
   }
 
   if (path === "/v1/resolve" && req.method === "GET") {
-    const modelId = url.searchParams.get("modelId") ?? "";
-    const result = resolveModel(snapshot, modelId);
-    return send(res, "error" in result ? 404 : 200, { ...result, staleSeconds }, rateHeaders);
+    const out = runResolve(snapshot, staleSeconds, { modelId: url.searchParams.get("modelId") ?? "" });
+    return send(res, out.status, out.body, rateHeaders);
   }
 
   if (path === "/v1/catalogue" && req.method === "GET") {
-    const line = url.searchParams.get("line");
-    const minContext = Number(url.searchParams.get("minContext") ?? 0);
-    const rows = snapshot.offers
-      .filter((o) => (line ? o.line === line : true))
-      .filter((o) => o.context >= minContext)
-      .slice(0, Math.min(Number(url.searchParams.get("limit") ?? MAX_ROWS), MAX_ROWS))
-      .map(publicOffer);
-    return send(res, 200, {
-      offers: rows,
-      returned: rows.length,
-      totalOffers: snapshot.offers.length,
-      uniqueModelIds: new Set(snapshot.offers.map((o) => o.modelId)).size,
-      snapshotId: snapshot.snapshotId,
-      pricedAt: snapshot.pricedAt,
-      staleSeconds,
-    }, rateHeaders);
+    const out = runCatalogue(snapshot, staleSeconds, {
+      line: url.searchParams.get("line"),
+      minContext: Number(url.searchParams.get("minContext") ?? 0),
+      limit: Number(url.searchParams.get("limit") ?? 50),
+    });
+    return send(res, out.status, out.body, rateHeaders);
   }
 
   if (path === "/v1/catalogue/diff" && req.method === "GET") {
-    return send(res, 200, diffAgainstSubmitted(snapshot), rateHeaders);
+    const out = runCatalogueDiff(SUBMITTED, snapshot);
+    return send(res, out.status, out.body, rateHeaders);
+  }
+
+  // JSON-RPC. The transport carries the answer; a refusal by a tool is a
+  // result, and only a malformed request is an error object. The HTTP status
+  // stays 200 for anything the protocol can describe itself.
+  if (path === "/mcp" && req.method === "POST") {
+    let payload: unknown;
+    try {
+      payload = await readJson(req);
+    } catch (err) {
+      return send(res, 400, PARSE_ERROR_RESPONSE(err instanceof Error ? err.message : "unreadable body"), rateHeaders);
+    }
+    const reply = handleMcpPayload(payload, { snapshot, staleSeconds, submitted: SUBMITTED });
+    if (reply === null) {
+      res.writeHead(202, { "access-control-allow-origin": "*" });
+      res.end();
+      return;
+    }
+    return send(res, 200, reply, rateHeaders);
   }
 
   return send(res, 404, {
