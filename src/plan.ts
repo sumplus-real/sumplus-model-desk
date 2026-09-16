@@ -23,6 +23,8 @@ export type PlanRequest = {
   requireLines?: string[];
   excludeLines?: string[];
   baselineModelId?: string;
+  /** Preview offers are left out unless this is set. */
+  includePreview?: boolean;
   limit?: number;
 };
 
@@ -37,6 +39,12 @@ export type EligibleOffer = {
   context: number;
   maxOutput: number;
   availability: string;
+  /**
+   * The catalogue lists this offer at zero. That is what it says; it is not a
+   * claim that the call is free, because a price of zero and a price nobody
+   * has filled in look identical in this field.
+   */
+  listedAtZero?: boolean;
 };
 
 export type RejectedOffer = {
@@ -45,7 +53,14 @@ export type RejectedOffer = {
   lineCode: string;
   reason: string;
   /** Which single requirement ruled it out. */
-  bindingConstraint: "context" | "max_output" | "min_context" | "min_max_output" | "line";
+  bindingConstraint:
+    | "context"
+    | "max_output"
+    | "min_context"
+    | "min_max_output"
+    | "line"
+    | "availability"
+    | "not_token_priced";
   requiredValue: number | string;
   actualValue: number | string;
 };
@@ -66,6 +81,7 @@ export type PlanResult = {
     requireLines?: string[];
     excludeLines?: string[];
     baselineModelId?: string;
+    includePreview?: boolean;
     limit?: number;
   };
   eligible: EligibleOffer[];
@@ -140,6 +156,38 @@ export function validateTokens(req: PlanRequest): PlanError | null {
  */
 function judge(offer: Offer, req: PlanRequest): RejectedOffer | null {
   const needed = req.inputTokens + req.outputTokens;
+
+  // Video and image models sit in the same catalogue with a context window and
+  // an output ceiling of zero: they are not sold by the token at all, so their
+  // per-million fields carry no meaning and their zero is not a price. A job
+  // measured in tokens cannot be placed on one, and saying so by name is
+  // better than dropping them silently.
+  if (offer.context === 0 || offer.maxOutput === 0) {
+    return {
+      modelId: offer.modelId,
+      line: offer.line,
+      lineCode: offer.lineCode,
+      reason:
+        "This offer is not sold by the token: the catalogue gives it no context window or output ceiling, so its per-million figures do not price this job.",
+      bindingConstraint: "not_token_priced",
+      requiredValue: "priced per token",
+      actualValue: `context ${offer.context}, maxOutput ${offer.maxOutput}`,
+    };
+  }
+
+  // Preview offers are real and priced, but a caller should choose one on
+  // purpose rather than find it at the top of a list sorted by price.
+  if (offer.availability !== "live" && req.includePreview !== true) {
+    return {
+      modelId: offer.modelId,
+      line: offer.line,
+      lineCode: offer.lineCode,
+      reason: `This offer is marked ${offer.availability}, not live. Set includePreview to consider it.`,
+      bindingConstraint: "availability",
+      requiredValue: "live",
+      actualValue: offer.availability,
+    };
+  }
 
   if (req.requireLines?.length && !req.requireLines.includes(offer.line)) {
     return {
@@ -271,6 +319,9 @@ export function plan(
       context: offer.context,
       maxOutput: offer.maxOutput,
       availability: offer.availability,
+      ...(offer.inputPerMillionMicro === 0 && offer.outputPerMillionMicro === 0
+        ? { listedAtZero: true }
+        : {}),
     });
   }
 
@@ -304,6 +355,7 @@ export function plan(
       ...(req.requireLines ? { requireLines: req.requireLines } : {}),
       ...(req.excludeLines ? { excludeLines: req.excludeLines } : {}),
       ...(req.baselineModelId ? { baselineModelId: req.baselineModelId } : {}),
+      ...(req.includePreview !== undefined ? { includePreview: req.includePreview } : {}),
       ...(req.limit !== undefined ? { limit: req.limit } : {}),
     },
     eligible: eligible.slice(0, limit),

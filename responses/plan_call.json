@@ -25,7 +25,8 @@
       },
       "context": 128000,
       "maxOutput": 16000,
-      "availability": "live"
+      "availability": "live",
+      "listedAtZero": true
     },
     {
       "modelId": "glm-4.7-flash",
@@ -46,7 +47,8 @@
       },
       "context": 200000,
       "maxOutput": 16000,
-      "availability": "live"
+      "availability": "live",
+      "listedAtZero": true
     },
     {
       "modelId": "gemini-2.5-flash-lite",
@@ -255,103 +257,112 @@
       "actualValue": 8192
     },
     {
+      "modelId": "qwen3.8-max",
+      "line": "mixai",
+      "lineCode": "M",
+      "reason": "This offer is marked preview, not live. Set includePreview to consider it.",
+      "bindingConstraint": "availability",
+      "requiredValue": "live",
+      "actualValue": "preview"
+    },
+    {
       "modelId": "doubao-seedance-2-0-fast",
       "line": "arklin",
       "lineCode": "A",
-      "reason": "Its context window holds 0 tokens, and this job needs 110000 for the prompt plus its answer.",
-      "bindingConstraint": "context",
-      "requiredValue": 110000,
-      "actualValue": 0
+      "reason": "This offer is not sold by the token: the catalogue gives it no context window or output ceiling, so its per-million figures do not price this job.",
+      "bindingConstraint": "not_token_priced",
+      "requiredValue": "priced per token",
+      "actualValue": "context 0, maxOutput 0"
     },
     {
       "modelId": "doubao-seedance-2.0",
       "line": "arklin",
       "lineCode": "A",
-      "reason": "Its context window holds 0 tokens, and this job needs 110000 for the prompt plus its answer.",
-      "bindingConstraint": "context",
-      "requiredValue": 110000,
-      "actualValue": 0
+      "reason": "This offer is not sold by the token: the catalogue gives it no context window or output ceiling, so its per-million figures do not price this job.",
+      "bindingConstraint": "not_token_priced",
+      "requiredValue": "priced per token",
+      "actualValue": "context 0, maxOutput 0"
     },
     {
       "modelId": "dreamina-seedance-2-0",
       "line": "arklin",
       "lineCode": "A",
-      "reason": "Its context window holds 0 tokens, and this job needs 110000 for the prompt plus its answer.",
-      "bindingConstraint": "context",
-      "requiredValue": 110000,
-      "actualValue": 0
+      "reason": "This offer is not sold by the token: the catalogue gives it no context window or output ceiling, so its per-million figures do not price this job.",
+      "bindingConstraint": "not_token_priced",
+      "requiredValue": "priced per token",
+      "actualValue": "context 0, maxOutput 0"
     },
     {
       "modelId": "dreamina-seedance-2-0-fast",
       "line": "arklin",
       "lineCode": "A",
-      "reason": "Its context window holds 0 tokens, and this job needs 110000 for the prompt plus its answer.",
-      "bindingConstraint": "context",
-      "requiredValue": 110000,
-      "actualValue": 0
+      "reason": "This offer is not sold by the token: the catalogue gives it no context window or output ceiling, so its per-million figures do not price this job.",
+      "bindingConstraint": "not_token_priced",
+      "requiredValue": "priced per token",
+      "actualValue": "context 0, maxOutput 0"
     },
     {
       "modelId": "dreamina-seedance-2-0-lite",
       "line": "arklin",
       "lineCode": "A",
-      "reason": "Its context window holds 0 tokens, and this job needs 110000 for the prompt plus its answer.",
-      "bindingConstraint": "context",
-      "requiredValue": 110000,
-      "actualValue": 0
+      "reason": "This offer is not sold by the token: the catalogue gives it no context window or output ceiling, so its per-million figures do not price this job.",
+      "bindingConstraint": "not_token_priced",
+      "requiredValue": "priced per token",
+      "actualValue": "context 0, maxOutput 0"
     },
     {
       "modelId": "dreamina-seedance-2-0-fast-lite",
       "line": "arklin",
       "lineCode": "A",
-      "reason": "Its context window holds 0 tokens, and this job needs 110000 for the prompt plus its answer.",
-      "bindingConstraint": "context",
-      "requiredValue": 110000,
-      "actualValue": 0
+      "reason": "This offer is not sold by the token: the catalogue gives it no context window or output ceiling, so its per-million figures do not price this job.",
+      "bindingConstraint": "not_token_priced",
+      "requiredValue": "priced per token",
+      "actualValue": "context 0, maxOutput 0"
     },
     {
       "modelId": "seedance-2-0-mini",
       "line": "ark",
       "lineCode": "R",
-      "reason": "Its context window holds 0 tokens, and this job needs 110000 for the prompt plus its answer.",
-      "bindingConstraint": "context",
-      "requiredValue": 110000,
-      "actualValue": 0
+      "reason": "This offer is not sold by the token: the catalogue gives it no context window or output ceiling, so its per-million figures do not price this job.",
+      "bindingConstraint": "not_token_priced",
+      "requiredValue": "priced per token",
+      "actualValue": "context 0, maxOutput 0"
     },
     {
       "modelId": "seedance-2-0-fast",
       "line": "ark",
       "lineCode": "R",
-      "reason": "Its context window holds 0 tokens, and this job needs 110000 for the prompt plus its answer.",
-      "bindingConstraint": "context",
-      "requiredValue": 110000,
-      "actualValue": 0
+      "reason": "This offer is not sold by the token: the catalogue gives it no context window or output ceiling, so its per-million figures do not price this job.",
+      "bindingConstraint": "not_token_priced",
+      "requiredValue": "priced per token",
+      "actualValue": "context 0, maxOutput 0"
     },
     {
       "modelId": "seedance-2-0",
       "line": "ark",
       "lineCode": "R",
-      "reason": "Its context window holds 0 tokens, and this job needs 110000 for the prompt plus its answer.",
-      "bindingConstraint": "context",
-      "requiredValue": 110000,
-      "actualValue": 0
+      "reason": "This offer is not sold by the token: the catalogue gives it no context window or output ceiling, so its per-million figures do not price this job.",
+      "bindingConstraint": "not_token_priced",
+      "requiredValue": "priced per token",
+      "actualValue": "context 0, maxOutput 0"
     },
     {
       "modelId": "doubao-seedream-4-0",
       "line": "ark",
       "lineCode": "R",
-      "reason": "Its context window holds 0 tokens, and this job needs 110000 for the prompt plus its answer.",
-      "bindingConstraint": "context",
-      "requiredValue": 110000,
-      "actualValue": 0
+      "reason": "This offer is not sold by the token: the catalogue gives it no context window or output ceiling, so its per-million figures do not price this job.",
+      "bindingConstraint": "not_token_priced",
+      "requiredValue": "priced per token",
+      "actualValue": "context 0, maxOutput 0"
     }
   ],
-  "eligibleCount": 79,
-  "rejectedCount": 14,
+  "eligibleCount": 78,
+  "rejectedCount": 15,
   "truncated": true,
-  "omittedCount": 69,
+  "omittedCount": 68,
   "snapshotId": "c4675be6df4d0a9bf65d8c70eb3e2a37f5509bf0d22b42b8ea17382316fab64b",
-  "pricedAt": "2026-09-16T18:24:44.999Z",
-  "staleSeconds": 75,
+  "pricedAt": "2026-09-16T18:47:47.077Z",
+  "staleSeconds": 0,
   "savingsVsBaseline": {
     "baselineModelId": "gpt-5.5",
     "baselineOffer": {

@@ -18,6 +18,14 @@ export const TOOLS = {
     maxTokensPerField: 2_000_000,
     catalogueRefreshSeconds: 300,
   },
+  notes: {
+    zeroPrices:
+      "Some offers are listed at zero in the catalogue. Rows carrying listedAtZero report the catalogue's figure and nothing more.",
+    notTokenPriced:
+      "The catalogue also carries video and image models, which have no context window or output ceiling. A job measured in tokens cannot be placed on one, and they are refused by name rather than dropped.",
+    preview:
+      "Offers marked preview are excluded by default and reported as refused on availability. Pass includePreview to consider them.",
+  },
   vocabulary: {
     offer:
       "One model id served on one line at that line's price. The unit everything here is grouped by.",
@@ -45,13 +53,23 @@ export const TOOLS = {
           required: false,
           note: "The id you were going to use. The answer then carries what you save against it.",
         },
+        includePreview: {
+          type: "boolean",
+          required: false,
+          default: false,
+          note: "Offers marked preview rather than live are left out unless this is true.",
+        },
         limit: { type: "integer", required: false, default: 50, max: 50 },
       },
       output: {
         eligible:
           "Offers that can take the job, cheapest first: modelId, line, lineCode, inputCost, outputCost, totalCost, context, maxOutput, availability.",
         rejected:
-          "Offers that cannot, each with reason, bindingConstraint, requiredValue, actualValue.",
+          "Offers that cannot, each with reason, bindingConstraint, requiredValue, actualValue. bindingConstraint is one of context, max_output, min_context, min_max_output, line, availability, not_token_priced.",
+        listedAtZero:
+          "Set on a row the catalogue prices at zero. It reports what the catalogue says and makes no claim that the call is free: a zero price and an unfilled price are the same value in that field.",
+        truncated:
+          "True when rows were cut by limit. eligibleCount is always the real total.",
         savingsVsBaseline:
           "Present when baselineModelId was given. Carries baselineIneligible when the id you had in mind cannot take this job.",
         snapshotId: "Content address of the catalogue these numbers came from.",
@@ -90,6 +108,9 @@ export const TOOLS = {
       transport: { method: "GET", path: "/v1/resolve?modelId=<id>" },
       purpose:
         "Show every offer carrying one id, with the price spread between them. This is the tool that demonstrates an id is not a price.",
+      input: {
+        modelId: { type: "string", required: true, note: "Passed in the query string." },
+      },
       output: "offers[] sorted by input price, plus spread as a multiple.",
       errors: [{ code: "unknown_model", http: 404, when: "No offer carries that id. Carries closestIds." }],
     },
@@ -97,14 +118,28 @@ export const TOOLS = {
       name: "catalogue",
       transport: { method: "GET", path: "/v1/catalogue?line=&minContext=&limit=" },
       purpose: "Read the catalogue this desk is pricing against.",
+      input: {
+        line: { type: "string", required: false, note: "Only offers served on this line." },
+        minContext: { type: "integer", required: false, note: "Only offers whose window is at least this size." },
+        limit: { type: "integer", required: false, default: 50, max: 50 },
+      },
       output: "offers[], totalOffers, uniqueModelIds, snapshotId, pricedAt, staleSeconds.",
+      errors: [
+        { code: "catalogue_unavailable", http: 503, when: "No catalogue has been read yet." },
+        { code: "rate_limited", http: 429, when: "Over 60 requests in a minute from one address." },
+      ],
     },
     {
       name: "catalogue_diff",
       transport: { method: "GET", path: "/v1/catalogue/diff" },
       purpose:
         "Compare today's catalogue with the one committed alongside this build, so a reviewer can see what moved since submission.",
+      input: {},
       output: "added, removed, repriced, rewindowed, and counts.",
+      errors: [
+        { code: "catalogue_unavailable", http: 503, when: "No catalogue has been read yet." },
+        { code: "rate_limited", http: 429, when: "Over 60 requests in a minute from one address." },
+      ],
       honesty:
         "This shows the upstream catalogue is live and changing. It does not independently confirm any price is correct: both readings come from the same source.",
     },

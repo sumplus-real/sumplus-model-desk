@@ -57,6 +57,22 @@ A refusal carries the number that caused it and what to relax:
 When nothing can take the job at all, the error carries the largest window and output ceiling that
 exist, so the caller knows what would work.
 
+## What it will not put in front of you
+
+**Offers that are not sold by the token.** The same catalogue carries video and image models, which
+have no context window and no output ceiling. Their per-million fields are zero because the field
+does not apply, not because they are free. A job measured in tokens cannot be placed on one, so
+they are refused by name, with `bindingConstraint: "not_token_priced"`.
+
+**Offers that are not live.** Two offers are marked `preview`, and one of them is a real text model
+with a million-token window at a competitive price, so it would otherwise sit high in a list sorted
+by price with nothing to say it is a preview. They are excluded by default and refused with
+`bindingConstraint: "availability"`. Pass `includePreview: true` to consider them on purpose.
+
+**A zero it cannot explain.** Some offers are listed at zero, and those rows carry
+`listedAtZero: true`. The desk reports the figure the catalogue gives and makes no claim beyond it:
+a price of zero and a price nobody has filled in are the same value in that field.
+
 ## Running it
 
 ```bash

@@ -41,7 +41,10 @@ export function usd(microUsd: number): string {
     const shown = dollars.toFixed(places);
     if (Number(shown) === dollars) return `$${shown}`;
   }
-  return `$${(Math.ceil(dollars * 1e6) / 1e6).toFixed(6)}`;
+  // Unreachable: micro-dollars are integers, so six decimals always read back
+  // exactly. It throws rather than rounding, because a safety net that has
+  // never caught anything is a place for a wrong number to hide.
+  throw new Error(`micro-dollar amount ${microUsd} did not round-trip at six decimals`);
 }
 
 export function money(microUsd: number): Money {

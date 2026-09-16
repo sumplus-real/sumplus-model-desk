@@ -130,6 +130,9 @@ for (const row of response.rejected ?? []) {
   const blocked =
     offer.context < inputTokens + outputTokens ||
     offer.maxOutput < outputTokens ||
+    offer.context === 0 ||
+    offer.maxOutput === 0 ||
+    offer.availability !== "live" ||
     row.bindingConstraint === "line" ||
     row.bindingConstraint === "min_context" ||
     row.bindingConstraint === "min_max_output";
@@ -144,7 +147,33 @@ check(
   "every refusal names the constraint and both numbers",
 );
 
-console.log("\n4. Several offers of one id keep their own rows");
+console.log("\n4. Nothing is recommended that is not sold by the token, or not live");
+const notSoldByToken = (response.eligible ?? []).filter((r) => {
+  const o = offers.get(`${r.modelId}::${r.line}`);
+  return o && (o.context === 0 || o.maxOutput === 0);
+});
+check(notSoldByToken.length === 0, "no video or image offer was recommended for a token job", `${notSoldByToken.length} such rows`);
+const previews = (response.eligible ?? []).filter((r) => {
+  const o = offers.get(`${r.modelId}::${r.line}`);
+  return o && o.availability !== "live";
+});
+const previewAsked = response.request?.includePreview === true;
+check(previewAsked || previews.length === 0, "no preview offer appears unless it was asked for", `${previews.length} preview rows`);
+// The marker belongs to the offer's own rates, not to the total: a job of zero
+// tokens costs nothing on every offer in the catalogue, and none of that says
+// anything about how the offer is priced.
+const listedZero = (response.eligible ?? []).filter((r) => {
+  const o = offers.get(`${r.modelId}::${r.line}`);
+  return o && o.inputPerMillionMicro === 0 && o.outputPerMillionMicro === 0;
+});
+const pricedRows = (response.eligible ?? []).filter((r) => {
+  const o = offers.get(`${r.modelId}::${r.line}`);
+  return o && (o.inputPerMillionMicro > 0 || o.outputPerMillionMicro > 0);
+});
+check(listedZero.every((r) => r.listedAtZero === true), "every offer the catalogue lists at zero says so", `${listedZero.length} such rows`);
+check(pricedRows.every((r) => r.listedAtZero === undefined), "no priced offer is marked as listed at zero", `${pricedRows.length} priced rows`);
+
+console.log("\n5. Several offers of one id keep their own rows");
 const byId = new Map();
 for (const row of response.eligible ?? []) {
   byId.set(row.modelId, (byId.get(row.modelId) ?? 0) + 1);

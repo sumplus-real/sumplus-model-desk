@@ -183,7 +183,81 @@ const capped = plan(snapshot, 0, { inputTokens: 1_000, outputTokens: 100, limit:
 check("a capped answer says so", isResult(capped) && capped.truncated === true && capped.omittedCount > 0, isResult(capped) ? `${capped.omittedCount} omitted` : "errored");
 check("a capped answer still reports the true total", isResult(capped) && capped.eligibleCount > capped.eligible.length);
 
-console.log("6. The snapshot is content addressed");
+console.log("6. Offers that are not sold by the token, and offers that are not live");
+const notTokenPriced = snapshot.offers.filter((o) => o.context === 0 || o.maxOutput === 0);
+check("the catalogue carries offers with no token window", notTokenPriced.length > 0, `${notTokenPriced.length} of them`);
+// A zero-token job is the one that gets past every size constraint, which is
+// exactly where a video model would otherwise be recommended at zero.
+const zeroJob = plan(snapshot, 0, { inputTokens: 0, outputTokens: 0 });
+if (isResult(zeroJob)) {
+  const slipped = zeroJob.eligible.filter((e) => e.context === 0 || e.maxOutput === 0);
+  check("none of them is recommended for a token job", slipped.length === 0, `${slipped.length} slipped through`);
+  const named = zeroJob.rejected.filter((r) => r.bindingConstraint === "not_token_priced");
+  check("each is refused by name rather than dropped", named.length === notTokenPriced.length, `${named.length} refused`);
+}
+
+const previews = snapshot.offers.filter((o) => o.availability !== "live");
+check("the catalogue carries preview offers", previews.length > 0, `${previews.length}`);
+const defaultJob = plan(snapshot, 0, { inputTokens: 1_000, outputTokens: 100 });
+if (isResult(defaultJob)) {
+  check("preview offers stay out by default", defaultJob.eligible.every((e) => e.availability === "live"));
+  check("and are refused on availability", defaultJob.rejected.some((r) => r.bindingConstraint === "availability"));
+}
+// Narrowed to the preview offer's own line, so the row cap cannot be what
+// keeps it out of the list. Without this, dropping the filter still passes.
+const previewLine = previews[0].line;
+const narrowed = plan(snapshot, 0, { inputTokens: 1_000, outputTokens: 100, requireLines: [previewLine] });
+if (isResult(narrowed)) {
+  // Pin the premise first: a truncated list and a complete one look identical,
+  // so an assertion about what is absent means nothing until this holds.
+  check("that short list is complete, not truncated", narrowed.truncated === false && narrowed.eligible.length === narrowed.eligibleCount, `${narrowed.eligible.length} of ${narrowed.eligibleCount}`);
+  check("a preview offer is absent even from its own line's short list", !narrowed.eligible.some((e) => e.availability !== "live"), `${narrowed.eligible.length} rows`);
+  check("and appears in that list's refusals", narrowed.rejected.some((r) => r.bindingConstraint === "availability"));
+}
+const withPreview = plan(snapshot, 0, { inputTokens: 1_000, outputTokens: 100, includePreview: true, limit: 50 });
+if (isResult(withPreview) && isResult(defaultJob)) {
+  check("asking for preview offers brings them back", withPreview.eligibleCount > defaultJob.eligibleCount, `${withPreview.eligibleCount} vs ${defaultJob.eligibleCount}`);
+}
+
+console.log("7. A zero price says what it is");
+const zeroPriced = snapshot.offers.filter((o) => o.inputPerMillionMicro === 0 && o.outputPerMillionMicro === 0 && o.context > 0);
+check("the catalogue lists some offers at zero", zeroPriced.length > 0, `${zeroPriced.length}`);
+// The free tier lives on one line and inside a modest window, so this job is
+// chosen to make sure those offers are actually in the answer before anything
+// is asserted about them.
+const freeLine = zeroPriced[0].line;
+const glmJob = plan(snapshot, 0, { inputTokens: 1_000, outputTokens: 100, requireLines: [freeLine] });
+if (isResult(glmJob)) {
+  check("that list is complete, not truncated", glmJob.truncated === false && glmJob.eligible.length === glmJob.eligibleCount, `${glmJob.eligible.length} of ${glmJob.eligibleCount}`);
+  const free = glmJob.eligible.filter((e) => e.listedAtZero === true);
+  check("the free offers are still recommended", free.length === zeroPriced.filter((o) => o.line === freeLine).length, `${free.length} of them`);
+  check("every one of them says the catalogue listed it at zero", free.every((e) => e.totalCost.microUsd === 0));
+  const priced = glmJob.eligible.filter((e) => e.totalCost.microUsd > 0);
+  check("priced rows carry no such mark", priced.every((e) => e.listedAtZero === undefined), `${priced.length} priced rows`);
+}
+
+console.log("8. Money formatting holds for every integer it can meet");
+let threw = 0;
+for (const micro of [0, 1, 9, 10, 99, 1_000, 999_999, 1_000_000, 123_456_789]) {
+  try {
+    usd(micro);
+  } catch {
+    threw += 1;
+  }
+}
+check("no whole micro-dollar amount fails to format", threw === 0);
+check("zero formats as zero", usd(0) === "$0.00");
+// The invariant made observable: hand it something that is not a whole
+// micro-dollar and it refuses rather than quietly rounding.
+let refusedFraction = false;
+try {
+  usd(1.5);
+} catch {
+  refusedFraction = true;
+}
+check("a fractional micro-dollar is refused, not rounded", refusedFraction);
+
+console.log("9. The snapshot is content addressed");
 check("the committed snapshot's id recomputes", snapshotIdOf(snapshot.offers) === snapshot.snapshotId);
 const tampered = snapshot.offers.map((o, i) => (i === 0 ? { ...o, inputPerMillionMicro: o.inputPerMillionMicro + 1 } : o));
 check("changing one price changes the id", snapshotIdOf(tampered) !== snapshot.snapshotId);
